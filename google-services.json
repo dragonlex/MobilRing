@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "853366864297",
+    "firebase_url": "https://mobilring-default-rtdb.firebaseio.com",
+    "project_id": "mobilring",
+    "storage_bucket": "mobilring.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:853366864297:android:0a3207d3e93a0b39b6ecb8",
+        "android_client_info": {
+          "package_name": "com.example.MobilRing24KRSK"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDl-SmsQI4JiTHjRGfwB2ceyZaCM7sMHsY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
