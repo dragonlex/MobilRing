@@ -1,10 +1,14 @@
 package com.example.MobilRing24KRSK
 
 import android.os.Bundle
+import android.net.Uri
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -36,6 +40,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -43,6 +49,7 @@ import androidx.compose.ui.unit.sp
 import com.example.MobilRing24KRSK.data.AdCategories
 import com.example.MobilRing24KRSK.data.AdType
 import com.example.MobilRing24KRSK.data.FirebaseRepo
+import com.example.MobilRing24KRSK.data.PhotoStore
 import com.example.MobilRing24KRSK.data.ProfileStore
 import com.example.MobilRing24KRSK.ui.components.DoodleButton
 import com.example.MobilRing24KRSK.ui.components.SimpleScreen
@@ -86,7 +93,7 @@ class ReportActivity : ComponentActivity() {
                 ReportScreen(
                     isLost = isLost,
                     profileComplete = store.profile.isComplete,
-                    onSubmit = { title, place, description, category, eventDate, onDone ->
+                    onSubmit = { title, place, description, category, eventDate, photo, onDone ->
                         repo.submit(
                             type = if (isLost) AdType.LOST else AdType.FOUND,
                             title = title,
@@ -95,6 +102,7 @@ class ReportActivity : ComponentActivity() {
                             category = category,
                             eventDate = eventDate,
                             profile = store.profile,
+                            photo = photo,
                             onResult = { success, message ->
                                 if (success) {
                                     Toast.makeText(this, "Объявление отправлено", Toast.LENGTH_SHORT).show()
@@ -172,6 +180,7 @@ fun ReportScreen(
         description: String,
         category: String,
         eventDate: Long,
+        photo: String,
         onDone: () -> Unit
     ) -> Unit
 ) {
@@ -181,10 +190,25 @@ fun ReportScreen(
     var description by remember { mutableStateOf("") }
     var category by remember { mutableStateOf(AdCategories.OTHER) }
     var eventDate by remember { mutableStateOf(startOfDay(System.currentTimeMillis())) }
+    var photo by remember { mutableStateOf("") }
     var pickerOpen by remember { mutableStateOf(false) }
     var sending by remember { mutableStateOf(false) }
     var helping by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+
+    // Выбор снимка из галереи. Сжатие в base64 идёт в фоне, чтобы не подвешивать форму.
+    val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+        if (uri != null) {
+            scope.launch {
+                val encoded = withContext(Dispatchers.IO) { PhotoStore.encode(context, uri) }
+                if (encoded.isBlank()) {
+                    Toast.makeText(context, "Не удалось прочитать фото", Toast.LENGTH_SHORT).show()
+                } else {
+                    photo = encoded
+                }
+            }
+        }
+    }
 
     val dateFormat = remember { SimpleDateFormat("dd.MM.yyyy", Locale.getDefault()) }
 
@@ -272,6 +296,37 @@ fun ReportScreen(
             )
             Spacer(Modifier.height(8.dp))
 
+            // Фото вещи: необязательно, но с ним находку узнают быстрее.
+            Text("Фото вещи (необязательно)", fontSize = 13.sp, color = Muted)
+            Spacer(Modifier.height(6.dp))
+            val preview = remember(photo) { PhotoStore.decode(photo) }
+            if (preview != null) {
+                Image(
+                    bitmap = preview.asImageBitmap(),
+                    contentDescription = "Фото вещи",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(220.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .border(2.dp, Ink, RoundedCornerShape(8.dp))
+                )
+                Spacer(Modifier.height(8.dp))
+                SmallDoodleButton(
+                    text = "УБРАТЬ ФОТО",
+                    color = Paper,
+                    onClick = { photo = "" }
+                )
+            } else {
+                SmallDoodleButton(
+                    text = "ДОБАВИТЬ ФОТО",
+                    color = Paper,
+                    onClick = { photoPicker.launch("image/*") }
+                )
+            }
+
+            Spacer(Modifier.height(12.dp))
+
             // Помощь с описанием: сервис на компьютере пишет текст по вещи и месту.
             SmallDoodleButton(
                 text = if (helping) "ПИШУ ОПИСАНИЕ…" else "ПОМОЧЬ С ОПИСАНИЕМ",
@@ -333,7 +388,7 @@ fun ReportScreen(
                         Toast.makeText(context, "Заполните обязательные поля", Toast.LENGTH_SHORT).show()
                     } else {
                         sending = true
-                        onSubmit(title, place, description, category, eventDate) { sending = false }
+                        onSubmit(title, place, description, category, eventDate, photo) { sending = false }
                     }
                 }
             )

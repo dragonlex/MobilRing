@@ -38,6 +38,7 @@ data class NotificationItem(
  * @param eventDateText та же дата строкой — её и показываем в карточке
  * @param ownerName/ownerPhone/ownerAddress/ownerAbout данные владельца из узла users
  * @param category категория вещи (одежда, ключи, …) — из списка [AdCategories]
+ * @param photo снимок вещи в base64 (JPEG, сжатие на телефоне); пустая строка — снимка нет
  */
 data class AdItem(
     val id: String,
@@ -56,7 +57,8 @@ data class AdItem(
     val ownerAddress: String = "",
     val ownerAbout: String = "",
     val category: String = "",
-    val ownerId: String = ""
+    val ownerId: String = "",
+    val photo: String = ""
 )
 
 /**

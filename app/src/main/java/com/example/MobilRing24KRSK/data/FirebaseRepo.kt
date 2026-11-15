@@ -35,7 +35,8 @@ data class AdRecord(
     var info: String = "",
     var category: String = "",
     var closed: Boolean = false,
-    var userId: String = ""
+    var userId: String = "",
+    var photo: String = ""
 )
 
 data class UserRecord(
@@ -144,6 +145,7 @@ class FirebaseRepo(context: Context) {
         category: String,
         eventDate: Long,
         profile: Profile,
+        photo: String,
         onResult: (success: Boolean, message: String) -> Unit
     ) {
         AuthGate.ensure { authorized ->
@@ -151,7 +153,7 @@ class FirebaseRepo(context: Context) {
                 onResult(false, "Не удалось войти в Firebase анонимно")
                 return@ensure
             }
-            pushAd(type, title, place, description, category, eventDate, profile, onResult)
+            pushAd(type, title, place, description, category, eventDate, profile, photo, onResult)
         }
     }
 
@@ -169,6 +171,7 @@ class FirebaseRepo(context: Context) {
         category: String,
         eventDate: Long,
         profile: Profile,
+        photo: String,
         onResult: (success: Boolean, message: String) -> Unit
     ) {
         val node = database.getReference(type.node)
@@ -188,7 +191,8 @@ class FirebaseRepo(context: Context) {
             info = description.trim(),
             category = category.trim(),
             closed = false,
-            userId = AuthGate.userId()
+            userId = AuthGate.userId(),
+            photo = photo.trim()
         )
 
         val user = UserRecord(
@@ -450,7 +454,8 @@ class DbFeed(
             ownerAddress = owner?.address.orEmpty(),
             ownerAbout = owner?.about.orEmpty(),
             category = category,
-            ownerId = userId
+            ownerId = userId,
+            photo = photo
         )
     }
 

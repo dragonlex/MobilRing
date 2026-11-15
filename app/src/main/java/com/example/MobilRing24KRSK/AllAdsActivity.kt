@@ -6,6 +6,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -22,9 +23,16 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -34,6 +42,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -42,12 +52,18 @@ import com.example.MobilRing24KRSK.data.AdCategories
 import com.example.MobilRing24KRSK.data.AdItem
 import com.example.MobilRing24KRSK.data.AdType
 import com.example.MobilRing24KRSK.data.FirebaseRepo
+import com.example.MobilRing24KRSK.data.PhotoStore
 import com.example.MobilRing24KRSK.ui.components.SimpleScreen
 import com.example.MobilRing24KRSK.ui.theme.BrandBlue
 import com.example.MobilRing24KRSK.ui.theme.Ink
 import com.example.MobilRing24KRSK.ui.theme.LostAndFindTheme
 import com.example.MobilRing24KRSK.ui.theme.Muted
 import com.example.MobilRing24KRSK.ui.theme.Paper
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
 
 class AllAdsActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -70,12 +86,81 @@ private enum class TypeFilter(val label: String) {
 }
 
 /**
+ * Быстрые варианты периода. Возвращают границы диапазона в миллисекундах:
+ * от начала первого дня до конца последнего, 0 — граница не ограничена.
+ */
+private enum class DatePreset(val label: String) {
+    ALL("Все даты"),
+    TODAY("Сегодня"),
+    WEEK("7 дней"),
+    MONTH("30 дней");
+
+    fun range(): Pair<Long, Long> = when (this) {
+        ALL -> 0L to 0L
+        TODAY -> {
+            val start = startOfToday()
+            start to endOfDay(start)
+        }
+        WEEK -> {
+            val start = startOfToday() - 6 * DAY_MS
+            start to endOfDay(startOfToday())
+        }
+        MONTH -> {
+            val start = startOfToday() - 29 * DAY_MS
+            start to endOfDay(startOfToday())
+        }
+    }
+}
+
+private const val DAY_MS = 24L * 60 * 60 * 1000
+
+/** Полночь текущих суток по местному времени. */
+private fun startOfToday(): Long = Calendar.getInstance().apply {
+    set(Calendar.HOUR_OF_DAY, 0)
+    set(Calendar.MINUTE, 0)
+    set(Calendar.SECOND, 0)
+    set(Calendar.MILLISECOND, 0)
+}.timeInMillis
+
+/** Последняя миллисекунда суток, начавшихся с [dayStart]. */
+private fun endOfDay(dayStart: Long): Long = dayStart + DAY_MS - 1
+
+/**
+ * Календарь Material3 отдаёт полночь выбранного дня по UTC, а в Красноярске (UTC+7)
+ * это уже другой день. Переносим выбранную дату в местную полночь.
+ */
+private fun pickerDayToLocal(utcDay: Long): Long {
+    val utc = Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply { timeInMillis = utcDay }
+    return Calendar.getInstance().apply {
+        clear()
+        set(
+            utc.get(Calendar.YEAR),
+            utc.get(Calendar.MONTH),
+            utc.get(Calendar.DAY_OF_MONTH),
+            0, 0, 0
+        )
+    }.timeInMillis
+}
+
+/** Подпись выбранного периода: «15.11.2026 — 20.11.2026» или одна дата. */
+private fun rangeLabel(from: Long, to: Long): String {
+    val format = SimpleDateFormat("dd.MM.yyyy", Locale.getDefault())
+    return when {
+        from > 0L && to > 0L -> "${format.format(Date(from))} — ${format.format(Date(to))}"
+        from > 0L -> "с ${format.format(Date(from))}"
+        to > 0L -> "по ${format.format(Date(to))}"
+        else -> ""
+    }
+}
+
+/**
  * «Все объявления»: лента из узлов lost и found.
  *
  * Фильтры локальные — данные уже загружены в [ads], поэтому переключение
  * «Моё / ВСЕ / ПОТЕРИ / НАХОДКИ» не ходит в сеть повторно.
  * Нажатие по карточке открывает экран просмотра (AdDetailActivity).
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AllAdsScreen(repo: FirebaseRepo) {
     val context = LocalContext.current
@@ -83,6 +168,16 @@ fun AllAdsScreen(repo: FirebaseRepo) {
     var typeFilter by remember { mutableStateOf(TypeFilter.ALL) }
     // null — показываем все категории.
     var categoryFilter by remember { mutableStateOf<String?>(null) }
+    // null — любое место; иначе точное совпадение с текстом места.
+    var placeFilter by remember { mutableStateOf<String?>(null) }
+    // Поиск по названию, описанию и месту — без учёта регистра.
+    var query by remember { mutableStateOf("") }
+    // Диапазон дат потери/находки в миллисекундах; 0 — граница не задана.
+    var dateFrom by remember { mutableStateOf(0L) }
+    var dateTo by remember { mutableStateOf(0L) }
+    var rangeOpen by remember { mutableStateOf(false) }
+    // Какую границу периода сейчас выбираем: 1 — начало, 2 — конец, 0 — диалог закрыт.
+    var pickerFor by remember { mutableStateOf(0) }
     var ads by remember { mutableStateOf<List<AdItem>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -103,6 +198,15 @@ fun AllAdsScreen(repo: FirebaseRepo) {
         onDispose { feed.stop() }
     }
 
+    // Места берём из самих объявлений: так список всегда актуален и не требует настроек.
+    val places = remember(ads) {
+        ads.map { it.place.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .sorted()
+    }
+
+    val trimmedQuery = query.trim()
     val visible = ads
         .filter { ad ->
             when (typeFilter) {
@@ -113,8 +217,66 @@ fun AllAdsScreen(repo: FirebaseRepo) {
         }
         .filter { ad -> !onlyMine || ad.isMine }
         .filter { ad -> categoryFilter == null || ad.category == categoryFilter }
+        .filter { ad -> placeFilter == null || ad.place.trim() == placeFilter }
+        .filter { ad ->
+            if (trimmedQuery.isBlank()) {
+                true
+            } else {
+                val haystack = listOf(ad.title, ad.description, ad.place, ad.category)
+                    .joinToString(" ")
+                    .lowercase()
+                haystack.contains(trimmedQuery.lowercase())
+            }
+        }
+        .filter { ad ->
+            val eventDate = if (ad.eventDate > 0L) ad.eventDate else ad.createdAt
+            (dateFrom == 0L || eventDate >= dateFrom) && (dateTo == 0L || eventDate <= dateTo)
+        }
 
     SimpleScreen(title = "Все объявления · ${visible.size}") {
+        // Свой период: сначала выбираем начало, затем конец.
+        if (pickerFor != 0) {
+            val pickerState = rememberDatePickerState()
+            DatePickerDialog(
+                onDismissRequest = { pickerFor = 0 },
+                confirmButton = {
+                    TextButton(onClick = {
+                        val picked = pickerState.selectedDateMillis
+                        if (picked != null) {
+                            val localDay = pickerDayToLocal(picked)
+                            if (pickerFor == 1) {
+                                dateFrom = localDay
+                                if (dateTo in 1 until localDay) dateTo = 0L
+                                pickerFor = 2
+                            } else {
+                                dateTo = endOfDay(localDay)
+                                pickerFor = 0
+                            }
+                        } else {
+                            pickerFor = 0
+                        }
+                    }) {
+                        Text(if (pickerFor == 1) "ДАЛЕЕ" else "ГОТОВО")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { pickerFor = 0 }) { Text("ОТМЕНА") }
+                }
+            ) {
+                DatePicker(state = pickerState)
+            }
+        }
+
+        // Поиск: одно поле на название, описание, место и категорию.
+        OutlinedTextField(
+            value = query,
+            onValueChange = { query = it },
+            label = { Text("Поиск по названию, описанию, месту") },
+            singleLine = true,
+            shape = RoundedCornerShape(8.dp),
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(Modifier.height(10.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -160,6 +322,61 @@ fun AllAdsScreen(repo: FirebaseRepo) {
                     }
                 )
             }
+        }
+        Spacer(Modifier.height(10.dp))
+        // Фильтр по месту: значения берутся из самих объявлений.
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            FilterPill(
+                label = "Все места",
+                selected = placeFilter == null,
+                onClick = { placeFilter = null }
+            )
+            places.forEach { place ->
+                FilterPill(
+                    label = place,
+                    selected = placeFilter == place,
+                    onClick = { placeFilter = if (placeFilter == place) null else place }
+                )
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        // Фильтр по дате потери/находки: быстрые варианты и свой период.
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            DatePreset.entries.forEach { preset ->
+                val (from, to) = preset.range()
+                FilterPill(
+                    label = preset.label,
+                    selected = dateFrom == from && dateTo == to,
+                    onClick = {
+                        dateFrom = from
+                        dateTo = to
+                    }
+                )
+            }
+            FilterPill(
+                label = "СВОЙ ПЕРИОД",
+                selected = dateFrom != 0L && dateTo != 0L &&
+                    DatePreset.entries.none { it.range() == dateFrom to dateTo },
+                onClick = { rangeOpen = true }
+            )
+        }
+        if (dateFrom != 0L || dateTo != 0L) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = rangeLabel(dateFrom, dateTo),
+                fontSize = 12.sp,
+                color = Muted
+            )
         }
         Spacer(Modifier.height(16.dp))
 
@@ -253,6 +470,23 @@ private fun AdCard(ad: AdItem, onClick: () -> Unit) {
                 )
             }
             Spacer(Modifier.height(8.dp))
+
+            // Снимок вещи: если он есть, показываем его до названия — по фото узнают быстрее.
+            val photo = remember(ad.photo) { PhotoStore.decode(ad.photo) }
+            if (photo != null) {
+                Image(
+                    bitmap = photo.asImageBitmap(),
+                    contentDescription = "Фото вещи",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(190.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .border(1.dp, Ink, RoundedCornerShape(6.dp))
+                )
+                Spacer(Modifier.height(8.dp))
+            }
+
                 Text(text = ad.title, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = Ink)
             Spacer(Modifier.height(4.dp))
             Text(text = ad.place, fontSize = 13.sp, color = Muted)
