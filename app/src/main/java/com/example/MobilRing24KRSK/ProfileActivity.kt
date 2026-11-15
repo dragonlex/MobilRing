@@ -1,5 +1,9 @@
 package com.example.MobilRing24KRSK
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -26,6 +30,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -37,13 +42,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.MobilRing24KRSK.data.FirebaseRepo
 import com.example.MobilRing24KRSK.data.Profile
 import com.example.MobilRing24KRSK.data.ProfileStore
+import com.example.MobilRing24KRSK.data.RecoveryKey
 import com.example.MobilRing24KRSK.ui.components.AvatarImage
 import com.example.MobilRing24KRSK.ui.components.DoodleButton
 import com.example.MobilRing24KRSK.ui.components.SimpleScreen
+import com.example.MobilRing24KRSK.ui.components.SmallDoodleButton
 import com.example.MobilRing24KRSK.ui.theme.BrandBlue
 import com.example.MobilRing24KRSK.ui.theme.Ink
 import com.example.MobilRing24KRSK.ui.theme.LostAndFindTheme
@@ -67,6 +76,9 @@ class ProfileActivity : ComponentActivity() {
             LostAndFindTheme {
                 ProfileScreen(
                     store = store,
+                    onRestore = {
+                        startActivity(Intent(this, RestoreActivity::class.java))
+                    },
                     onSaved = {
                         Toast.makeText(this, "Профиль сохранён", Toast.LENGTH_SHORT).show()
                         finish()
@@ -80,6 +92,7 @@ class ProfileActivity : ComponentActivity() {
 @Composable
 fun ProfileScreen(
     store: ProfileStore,
+    onRestore: () -> Unit,
     onSaved: () -> Unit
 ) {
     val context = LocalContext.current
@@ -88,6 +101,8 @@ fun ProfileScreen(
     var address by remember { mutableStateOf(store.profile.address) }
     var phone by remember { mutableStateOf(store.profile.phone) }
     var about by remember { mutableStateOf(store.profile.about) }
+    var showPhone by remember { mutableStateOf(store.profile.showPhone) }
+    var showAddress by remember { mutableStateOf(store.profile.showAddress) }
     var showErrors by remember { mutableStateOf(false) }
 
     val picker = rememberLauncherForActivityResult(
@@ -172,12 +187,44 @@ fun ProfileScreen(
                 supporting = "${about.length}/${ProfileStore.ABOUT_MAX}"
             )
 
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(20.dp))
+            Text("Приватность", fontWeight = FontWeight.SemiBold, color = Ink)
+            Text(
+                text = "Что видят другие люди в карточке вашего объявления.",
+                fontSize = 12.sp,
+                color = Muted
+            )
+            Spacer(Modifier.height(8.dp))
+            PrivacySwitch(
+                checked = showPhone,
+                onCheckedChange = { showPhone = it },
+                title = "Показывать телефон",
+                subtitle = if (showPhone) {
+                    "Номер виден, по нему можно позвонить"
+                } else {
+                    "Вместо номера будет «телефон скрыт»"
+                }
+            )
+            PrivacySwitch(
+                checked = showAddress,
+                onCheckedChange = { showAddress = it },
+                title = "Показывать адрес",
+                subtitle = if (showAddress) {
+                    "Адрес виден в карточке рядом с именем"
+                } else {
+                    "Адрес видите только вы"
+                }
+            )
+
+            Spacer(Modifier.height(14.dp))
             Text(
                 text = "* — обязательные поля. Без них нельзя сообщить о пропаже или находке.",
                 fontSize = 12.sp,
                 color = Muted
             )
+
+            Spacer(Modifier.height(22.dp))
+            RecoveryKeySection(context = context, onRestore = onRestore)
 
             Spacer(Modifier.height(22.dp))
 
@@ -189,10 +236,13 @@ fun ProfileScreen(
                         fullName = fullName.trim(),
                         address = address.trim(),
                         phone = phone.trim(),
-                        about = about.trim()
+                        about = about.trim(),
+                        showPhone = showPhone,
+                        showAddress = showAddress
                     )
                     if (profile.isComplete) {
                         store.save(profile)
+                        FirebaseRepo(context).saveProfile(profile)
                         onSaved()
                     } else {
                         showErrors = true
@@ -207,6 +257,105 @@ fun ProfileScreen(
 
             Spacer(Modifier.height(24.dp))
         }
+    }
+}
+
+/**
+ * Блок «Ключ восстановления».
+ *
+ * Ключ показывает только это устройство: он лежит в SharedPreferences рядом с профилем.
+ * Кнопка «СОЗДАТЬ КЛЮЧ» привязывает текущий анонимный аккаунт Firebase к паре
+ * «почта + пароль» из ключа, после чего тем же ключом можно войти на другом телефоне.
+ */
+@Composable
+private fun RecoveryKeySection(context: Context, onRestore: () -> Unit) {
+    var key by remember { mutableStateOf(RecoveryKey.stored(context)) }
+    var busy by remember { mutableStateOf(false) }
+
+    Text("Ключ восстановления", fontWeight = FontWeight.SemiBold, color = Ink)
+    Spacer(Modifier.height(4.dp))
+
+    if (key.isBlank()) {
+        Text(
+            text = "16-значный ключ привязывает аккаунт к устройству-независимому входу: " +
+                    "по нему на новом телефоне вернутся профиль, объявления и переписка.",
+            fontSize = 12.sp,
+            color = Muted
+        )
+        Spacer(Modifier.height(8.dp))
+        SmallDoodleButton(
+            text = if (busy) "СОЗДАЮ…" else "СОЗДАТЬ КЛЮЧ",
+            color = Paper,
+            onClick = {
+                if (busy) return@SmallDoodleButton
+                busy = true
+                RecoveryKey.create(context) { success, message ->
+                    busy = false
+                    if (success) {
+                        key = RecoveryKey.stored(context)
+                        Toast.makeText(context, "Ключ создан", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        )
+    } else {
+        Text(
+            text = "Ваш ключ. Запишите его отдельно от телефона — по нему восстанавливается аккаунт.",
+            fontSize = 12.sp,
+            color = Muted
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = RecoveryKey.format(key),
+            fontSize = 20.sp,
+            fontWeight = FontWeight.Bold,
+            color = Ink,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(6.dp))
+                .background(Paper)
+                .border(2.dp, Ink, RoundedCornerShape(6.dp))
+                .padding(vertical = 10.dp),
+            textAlign = TextAlign.Center
+        )
+        Spacer(Modifier.height(8.dp))
+        SmallDoodleButton(
+            text = "СКОПИРОВАТЬ КЛЮЧ",
+            color = Paper,
+            onClick = {
+                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(ClipData.newPlainText("Ключ восстановления", RecoveryKey.format(key)))
+                Toast.makeText(context, "Ключ скопирован", Toast.LENGTH_SHORT).show()
+            }
+        )
+    }
+
+    Spacer(Modifier.height(10.dp))
+    SmallDoodleButton(text = "ВОЙТИ ПО КЛЮЧУ", color = BrandBlue, onClick = onRestore)
+}
+
+@Composable
+private fun PrivacySwitch(
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    title: String,
+    subtitle: String
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onCheckedChange(!checked) }
+            .padding(vertical = 6.dp)
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(title, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Ink)
+            Text(subtitle, fontSize = 12.sp, color = Muted)
+        }
+        Spacer(Modifier.size(12.dp))
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }
 

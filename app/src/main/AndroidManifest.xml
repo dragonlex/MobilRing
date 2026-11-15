@@ -39,6 +39,12 @@
             android:windowSoftInputMode="adjustResize" />
 
         <activity
+            android:name=".RestoreActivity"
+            android:exported="false"
+            android:label="Восстановление"
+            android:windowSoftInputMode="adjustResize" />
+
+        <activity
             android:name=".AllAdsActivity"
             android:exported="false"
             android:label="Все объявления" />

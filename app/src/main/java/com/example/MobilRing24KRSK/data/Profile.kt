@@ -18,7 +18,11 @@ data class Profile(
     val fullName: String = "",
     val address: String = "",
     val phone: String = "",
-    val about: String = ""
+    val about: String = "",
+    /** Показывать телефон в объявлениях: false — другие увидят «номер скрыт». */
+    val showPhone: Boolean = true,
+    /** Показывать адрес в объявлениях: false — адрес видит только владелец. */
+    val showAddress: Boolean = true
 ) {
     /**
      * Можно ли публиковать объявления: нужны ФИО, адрес
@@ -51,7 +55,9 @@ class ProfileStore(context: Context) {
         fullName = prefs.getString(KEY_NAME, "").orEmpty(),
         address = prefs.getString(KEY_ADDRESS, "").orEmpty(),
         phone = prefs.getString(KEY_PHONE, "").orEmpty(),
-        about = prefs.getString(KEY_ABOUT, "").orEmpty()
+        about = prefs.getString(KEY_ABOUT, "").orEmpty(),
+        showPhone = prefs.getBoolean(KEY_SHOW_PHONE, true),
+        showAddress = prefs.getBoolean(KEY_SHOW_ADDRESS, true)
     )
 
     /**
@@ -70,6 +76,8 @@ class ProfileStore(context: Context) {
             .putString(KEY_ADDRESS, newProfile.address)
             .putString(KEY_PHONE, newProfile.phone)
             .putString(KEY_ABOUT, newProfile.about)
+            .putBoolean(KEY_SHOW_PHONE, newProfile.showPhone)
+            .putBoolean(KEY_SHOW_ADDRESS, newProfile.showAddress)
             .apply()
         profile = newProfile
     }
@@ -84,6 +92,8 @@ class ProfileStore(context: Context) {
         private const val KEY_ADDRESS = "address"
         private const val KEY_PHONE = "phone"
         private const val KEY_ABOUT = "about"
+        private const val KEY_SHOW_PHONE = "show_phone"
+        private const val KEY_SHOW_ADDRESS = "show_address"
 
         /** Ограничение длины поля «О себе» в символах. */
         const val ABOUT_MAX = 100

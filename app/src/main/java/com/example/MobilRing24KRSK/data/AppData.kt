@@ -58,7 +58,9 @@ data class AdItem(
     val ownerAbout: String = "",
     val category: String = "",
     val ownerId: String = "",
-    val photo: String = ""
+    val photo: String = "",
+    /** Автор скрыл телефон в настройках приватности — номер не показываем и звонить некуда. */
+    val ownerPhoneHidden: Boolean = false
 )
 
 /**

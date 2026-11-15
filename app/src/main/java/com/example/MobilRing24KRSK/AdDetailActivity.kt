@@ -141,7 +141,8 @@ class AdDetailActivity : ComponentActivity() {
             ownerAbout = intent.getStringExtra(EXTRA_OWNER_ABOUT).orEmpty(),
             category = intent.getStringExtra(EXTRA_CATEGORY).orEmpty(),
             ownerId = intent.getStringExtra(EXTRA_OWNER_ID).orEmpty(),
-            closed = intent.getBooleanExtra(EXTRA_CLOSED, false)
+            closed = intent.getBooleanExtra(EXTRA_CLOSED, false),
+            ownerPhoneHidden = intent.getBooleanExtra(EXTRA_PHONE_HIDDEN, false)
         )
     }
 
@@ -161,6 +162,7 @@ class AdDetailActivity : ComponentActivity() {
         private const val EXTRA_CATEGORY = "detail_category"
         private const val EXTRA_OWNER_ID = "detail_owner_id"
         private const val EXTRA_CLOSED = "detail_closed"
+        private const val EXTRA_PHONE_HIDDEN = "detail_phone_hidden"
 
         fun intentFor(context: Context, ad: AdItem): Intent =
             Intent(context, AdDetailActivity::class.java).apply {
@@ -179,6 +181,7 @@ class AdDetailActivity : ComponentActivity() {
                 putExtra(EXTRA_CATEGORY, ad.category)
                 putExtra(EXTRA_OWNER_ID, ad.ownerId)
                 putExtra(EXTRA_CLOSED, ad.closed)
+                putExtra(EXTRA_PHONE_HIDDEN, ad.ownerPhoneHidden)
             }
     }
 }
@@ -218,7 +221,9 @@ fun AdDetailScreen(
 ) {
     val context = LocalContext.current
     val number = dialNumber(ad.ownerPhone)
-    val canCall = number.isNotBlank()
+    // Автор мог скрыть номер в настройках приватности — тогда звонить некуда.
+    val phoneHidden = ad.ownerPhoneHidden
+    val canCall = number.isNotBlank() && !phoneHidden
     var confirmDelete by remember { mutableStateOf(false) }
     // Статус держим в состоянии экрана: после нажатия кнопки его видно сразу, без перезагрузки.
     var closed by remember { mutableStateOf(ad.closed) }
@@ -366,6 +371,9 @@ fun AdDetailScreen(
                     if (ad.ownerPhone.isNotBlank()) {
                         Spacer(Modifier.height(4.dp))
                         Text(text = ad.ownerPhone, fontSize = 14.sp, color = Ink)
+                    } else if (phoneHidden) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(text = "Номер скрыт автором", fontSize = 14.sp, color = Muted)
                     }
                     if (ad.ownerAddress.isNotBlank()) {
                         Spacer(Modifier.height(4.dp))
@@ -380,11 +388,22 @@ fun AdDetailScreen(
 
             Spacer(Modifier.height(18.dp))
             DoodleButton(
-                text = if (canCall) "ПОЗВОНИТЬ" else "ТЕЛЕФОН НЕ УКАЗАН",
+                text = when {
+                    phoneHidden -> "ТЕЛЕФОН СКРЫТ"
+                    canCall -> "ПОЗВОНИТЬ"
+                    else -> "ТЕЛЕФОН НЕ УКАЗАН"
+                },
                 onClick = onCallClick,
                 enabled = canCall
             )
-            if (canCall) {
+            if (phoneHidden) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = "Автор скрыл номер телефона в настройках приватности.",
+                    fontSize = 12.sp,
+                    color = Muted
+                )
+            } else if (canCall) {
                 Spacer(Modifier.height(8.dp))
                 Text(
                     text = "Номер наберётся автоматически. Если приложение не получило разрешение на звонки, откроется обычная клавиатура набора.",

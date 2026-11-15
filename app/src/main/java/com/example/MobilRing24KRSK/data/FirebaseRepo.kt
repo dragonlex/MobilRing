@@ -43,7 +43,9 @@ data class UserRecord(
     var name: String = "",
     var phone: String = "",
     var address: String = "",
-    var about: String = ""
+    var about: String = "",
+    var showPhone: Boolean = true,
+    var showAddress: Boolean = true
 )
 
 data class MatchPair(
@@ -199,7 +201,9 @@ class FirebaseRepo(context: Context) {
             name = profile.fullName.trim(),
             phone = profile.phone.trim(),
             address = profile.address.trim(),
-            about = profile.about.trim()
+            about = profile.about.trim(),
+            showPhone = profile.showPhone,
+            showAddress = profile.showAddress
         )
 
         val uid = AuthGate.userId()
@@ -217,6 +221,80 @@ class FirebaseRepo(context: Context) {
     }
 
     fun feed(): DbFeed = DbFeed(database)
+
+    /**
+     * Читает контакты текущего аккаунта из users/{uid}.
+     *
+     * Нужен после входа по ключу на другом телефоне: локальный профиль там пустой,
+     * а в базе он уже есть — иначе человек увидел бы пустые поля.
+     */
+    fun loadProfile(onResult: (Profile?, String) -> Unit) {
+        AuthGate.ensure { authorized ->
+            if (!authorized) {
+                onResult(null, "Не удалось войти в Firebase")
+                return@ensure
+            }
+            val uid = AuthGate.userId()
+            if (uid.isBlank()) {
+                onResult(null, "Нет идентификатора пользователя")
+                return@ensure
+            }
+            database.getReference(NODE_USERS).child(uid).get()
+                .addOnSuccessListener { snapshot ->
+                    val record = snapshot.getValue(UserRecord::class.java)
+                    if (record == null) {
+                        onResult(null, "В базе нет профиля")
+                    } else {
+                        onResult(
+                            Profile(
+                                fullName = record.name,
+                                address = record.address,
+                                phone = record.phone,
+                                about = record.about,
+                                showPhone = record.showPhone,
+                                showAddress = record.showAddress
+                            ),
+                            ""
+                        )
+                    }
+                }
+                .addOnFailureListener { error ->
+                    onResult(null, error.message ?: "Не удалось прочитать профиль")
+                }
+        }
+    }
+
+    /**
+     * Сохраняет контакты и настройки приватности в users/{uid} сразу после «СОХРАНИТЬ»
+     * в профиле. Без этого переключатели подействовали бы только на объявления,
+     * опубликованные после изменения, а старые показывали бы прежние контакты.
+     */
+    fun saveProfile(profile: Profile, onResult: (success: Boolean, message: String) -> Unit = { _, _ -> }) {
+        AuthGate.ensure { authorized ->
+            if (!authorized) {
+                onResult(false, "Не удалось войти в Firebase")
+                return@ensure
+            }
+            val uid = AuthGate.userId()
+            if (uid.isBlank()) {
+                onResult(false, "Нет идентификатора пользователя")
+                return@ensure
+            }
+            val user = UserRecord(
+                name = profile.fullName.trim(),
+                phone = profile.phone.trim(),
+                address = profile.address.trim(),
+                about = profile.about.trim(),
+                showPhone = profile.showPhone,
+                showAddress = profile.showAddress
+            )
+            database.getReference(NODE_USERS).child(uid).setValue(user)
+                .addOnSuccessListener { onResult(true, uid) }
+                .addOnFailureListener { error ->
+                    onResult(false, error.message ?: "Не удалось сохранить профиль в базе")
+                }
+        }
+    }
 
     /**
      * Ставит или снимает отметку «вещь найдена / возвращена».
@@ -437,6 +515,9 @@ class DbFeed(
 
     private fun AdRecord.toItem(id: String, type: AdType, mine: Boolean): AdItem {
         val owner = users[userId]
+        // Свои контакты владелец видит всегда, чужие — только если он их не скрыл.
+        val phoneVisible = mine || (owner?.showPhone ?: true)
+        val addressVisible = mine || (owner?.showAddress ?: true)
         return AdItem(
             id = id,
             type = type,
@@ -450,12 +531,13 @@ class DbFeed(
             eventDate = eventDate,
             eventDateText = if (eventDate > 0L) dateFormat.format(Date(eventDate)) else "",
             ownerName = owner?.name.orEmpty(),
-            ownerPhone = owner?.phone.orEmpty(),
-            ownerAddress = owner?.address.orEmpty(),
+            ownerPhone = if (phoneVisible) owner?.phone.orEmpty() else "",
+            ownerAddress = if (addressVisible) owner?.address.orEmpty() else "",
             ownerAbout = owner?.about.orEmpty(),
             category = category,
             ownerId = userId,
-            photo = photo
+            photo = photo,
+            ownerPhoneHidden = !phoneVisible && !owner?.phone.isNullOrBlank()
         )
     }
 
