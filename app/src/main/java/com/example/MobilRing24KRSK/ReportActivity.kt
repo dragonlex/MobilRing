@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -48,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.MobilRing24KRSK.data.AdCategories
 import com.example.MobilRing24KRSK.data.AdType
+import com.example.MobilRing24KRSK.data.CampusZones
 import com.example.MobilRing24KRSK.data.FirebaseRepo
 import com.example.MobilRing24KRSK.data.PhotoStore
 import com.example.MobilRing24KRSK.data.ProfileStore
@@ -194,6 +196,12 @@ fun ReportScreen(
     var pickerOpen by remember { mutableStateOf(false) }
     var sending by remember { mutableStateOf(false) }
     var helping by remember { mutableStateOf(false) }
+    val aiPrefs = remember { context.getSharedPreferences(AI_PREFS, android.content.Context.MODE_PRIVATE) }
+    var assistHost by remember {
+        mutableStateOf(aiPrefs.getString(KEY_ASSIST_HOST, DEFAULT_ASSIST_HOST).orEmpty().ifBlank { DEFAULT_ASSIST_HOST })
+    }
+    var hostDialogOpen by remember { mutableStateOf(false) }
+    var hostDraft by remember { mutableStateOf(assistHost) }
     val scope = rememberCoroutineScope()
 
     // Выбор снимка из галереи. Сжатие в base64 идёт в фоне, чтобы не подвешивать форму.
@@ -279,11 +287,28 @@ fun ReportScreen(
             OutlinedTextField(
                 value = place,
                 onValueChange = { place = it },
-                label = { Text("Место *") },
+                label = { Text("Место (зона или кабинет) *") },
                 singleLine = true,
                 shape = RoundedCornerShape(8.dp),
                 modifier = Modifier.fillMaxWidth()
             )
+            Spacer(Modifier.height(6.dp))
+            Text("Быстрый выбор зоны:", fontSize = 12.sp, color = Muted)
+            Spacer(Modifier.height(6.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                CampusZones.ALL.forEach { zone ->
+                    CategoryChip(
+                        label = zone.shortTitle,
+                        selected = place.trim().equals(zone.title, ignoreCase = true),
+                        onClick = { place = zone.title }
+                    )
+                }
+            }
             Spacer(Modifier.height(12.dp))
             OutlinedTextField(
                 value = description,
@@ -329,7 +354,7 @@ fun ReportScreen(
 
             // Помощь с описанием: сервис на компьютере пишет текст по вещи и месту.
             SmallDoodleButton(
-                text = if (helping) "ПИШУ ОПИСАНИЕ…" else "ПОМОЧЬ С ОПИСАНИЕМ",
+                text = if (helping) "ПИШУ ОПИСАНИЕ…" else "ПОМОЧЬ С ОПИСАНИЕМ (ИИ)",
                 color = Paper,
                 onClick = {
                     when {
@@ -340,7 +365,7 @@ fun ReportScreen(
                             helping = true
                             scope.launch {
                                 val result = withContext(Dispatchers.IO) {
-                                    runCatching { requestDescription(isLost, title, place, category) }
+                                    runCatching { requestDescription(assistHost, isLost, title, place, category) }
                                 }
                                 helping = false
                                 result
@@ -365,6 +390,16 @@ fun ReportScreen(
                             }
                         }
                     }
+                }
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = "Сервер ИИ: $assistHost:5002 (нажмите, чтобы изменить IP)",
+                fontSize = 12.sp,
+                color = Muted,
+                modifier = Modifier.clickable {
+                    hostDraft = assistHost
+                    hostDialogOpen = true
                 }
             )
 
@@ -417,31 +452,90 @@ fun ReportScreen(
             DatePicker(state = pickerState)
         }
     }
+
+    if (hostDialogOpen) {
+        AlertDialog(
+            onDismissRequest = { hostDialogOpen = false },
+            title = { Text("Адрес ИИ-помощника") },
+            text = {
+                Column {
+                    Text(
+                        text = "Укажите IP компьютера в вашей Wi-Fi сети, где запущен assist.py (порт 5002). Для эмулятора подходит 10.0.2.2.",
+                        fontSize = 13.sp,
+                        color = Muted
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedTextField(
+                        value = hostDraft,
+                        onValueChange = { hostDraft = it },
+                        label = { Text("IP или хост (например, 192.168.0.111)") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val cleaned = hostDraft.trim()
+                        .removePrefix("http://")
+                        .removePrefix("https://")
+                        .substringBefore(":")
+                        .substringBefore("/")
+                        .ifBlank { DEFAULT_ASSIST_HOST }
+                    assistHost = cleaned
+                    aiPrefs.edit().putString(KEY_ASSIST_HOST, cleaned).apply()
+                    hostDialogOpen = false
+                }) { Text("СОХРАНИТЬ") }
+            },
+            dismissButton = {
+                TextButton(onClick = { hostDialogOpen = false }) { Text("ОТМЕНА") }
+            }
+        )
+    }
 }
 
-/**
- * Адрес сервиса помощи с описанием — Server2/assist.py.
- *
- * Хост и порт должны совпадать с config.json на компьютере, где запущен сервис.
- * Телефон и компьютер должны быть в одной сети Wi-Fi.
- */
-private const val ASSIST_URL = "http://192.168.0.2:5002/describe"
+private const val AI_PREFS = "ai_assist_prefs"
+private const val KEY_ASSIST_HOST = "assist_host"
+private const val DEFAULT_ASSIST_HOST = "192.168.0.111"
+private const val ASSIST_PORT = 5002
 
 /**
  * Просит у сервиса готовое описание вещи и возвращает текст.
  *
- * Вызывать только из фонового потока: функция блокирующая.
- * При любой проблеме бросает исключение — вызывающий код показывает его текст.
+ * Пробует сначала указанный пользователем IP, а если он недоступен (например, запущено
+ * в эмуляторе Android), проверяет 10.0.2.2 и 127.0.0.1.
  */
 private fun requestDescription(
+    preferredHost: String,
     isLost: Boolean,
     title: String,
     place: String,
     category: String
 ): String {
-    val connection = (URL(ASSIST_URL).openConnection() as HttpURLConnection).apply {
+    val hosts = listOf(preferredHost.trim(), DEFAULT_ASSIST_HOST, "10.0.2.2", "127.0.0.1")
+        .filter { it.isNotBlank() }
+        .distinct()
+
+    var lastError: Throwable? = null
+    for (host in hosts) {
+        val url = "http://$host:$ASSIST_PORT/describe"
+        val result = runCatching { postDescribe(url, isLost, title, place, category) }
+        if (result.isSuccess) return result.getOrThrow()
+        lastError = result.exceptionOrNull()
+    }
+    throw (lastError ?: IllegalStateException("сервер ИИ не отвечает"))
+}
+
+private fun postDescribe(
+    url: String,
+    isLost: Boolean,
+    title: String,
+    place: String,
+    category: String
+): String {
+    val connection = (URL(url).openConnection() as HttpURLConnection).apply {
         requestMethod = "POST"
-        connectTimeout = 5000
+        connectTimeout = 3500
         readTimeout = 90000
         doOutput = true
         setRequestProperty("Content-Type", "application/json; charset=utf-8")

@@ -51,6 +51,7 @@ class MainActivity : ComponentActivity() {
                     onReportFoundClick = { openReport(ReportActivity.TYPE_FOUND) },
                     onAllAdsClick = { open(AllAdsActivity::class.java) },
                     onChatsClick = { open(ChatsActivity::class.java) },
+                    onHeatmapClick = { open(HeatmapActivity::class.java) },
                     onHelpClick = { open(HelpActivity::class.java) }
                 )
             }

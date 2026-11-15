@@ -74,6 +74,7 @@ fun HomeScreen(
     onReportFoundClick: () -> Unit,
     onAllAdsClick: () -> Unit,
     onChatsClick: () -> Unit,
+    onHeatmapClick: () -> Unit = {},
     onHelpClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -211,6 +212,13 @@ fun HomeScreen(
                 text = "СООБЩЕНИЯ",
                 onClick = onChatsClick,
                 color = Paper,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(10.dp))
+            SmallDoodleButton(
+                text = "КАРТА ЗОН И РЕЙТИНГ",
+                onClick = onHeatmapClick,
+                color = BrandBlue.copy(alpha = 0.72f),
                 modifier = Modifier.fillMaxWidth()
             )
 

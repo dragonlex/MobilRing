@@ -60,8 +60,25 @@ data class AdItem(
     val ownerId: String = "",
     val photo: String = "",
     /** Автор скрыл телефон в настройках приватности — номер не показываем и звонить некуда. */
-    val ownerPhoneHidden: Boolean = false
-)
+    val ownerPhoneHidden: Boolean = false,
+    /** Возврат подтверждён проверочным кодом при передаче вещи. */
+    val verifiedReturn: Boolean = false,
+    /** UID пользователя, который нашёл и вернул вещь (для рейтинга и благодарностей). */
+    val finderId: String = "",
+    val finderName: String = "",
+    /** UID владельца, получившего свою вещь обратно. */
+    val receiverId: String = "",
+    val returnedAt: Long = 0L
+) {
+    /** Человекочитаемый статус для ленты и личного кабинета по ТЗ. */
+    val statusLabel: String
+        get() = when {
+            closed && verifiedReturn -> "ВОЗВРАЩЕНО · ПО КОДУ"
+            closed -> "ВОЗВРАЩЕНО"
+            type == AdType.FOUND -> "ИЩЕТ ВЛАДЕЛЬЦА"
+            else -> "В ПОИСКЕ"
+        }
+}
 
 /**
  * Список категорий вещей. Тот же список используется помощником описаний на сервере
@@ -92,4 +109,94 @@ object AdCategories {
 enum class AdType(val label: String, val node: String) {
     LOST("ПОТЕРЯ", "lost"),
     FOUND("НАХОДКА", "found")
+}
+
+/**
+ * Типовые зоны учебного заведения для быстрого выбора места при подаче заявки
+ * и построения тепловой карты помещений («Зоны, где чаще забывают вещи»).
+ */
+data class CampusZone(
+    val id: String,
+    val title: String,
+    val shortTitle: String,
+    val floorLabel: String,
+    val keywords: List<String>
+)
+
+object CampusZones {
+    val ALL: List<CampusZone> = listOf(
+        CampusZone(
+            id = "wardrobe",
+            title = "Раздевалка / Гардероб",
+            shortTitle = "Гардероб",
+            floorLabel = "1 этаж",
+            keywords = listOf("раздевалк", "гардероб", "вешалк", "шкафчик", "сменк")
+        ),
+        CampusZone(
+            id = "gym",
+            title = "Спортзал",
+            shortTitle = "Спортзал",
+            floorLabel = "1 этаж",
+            keywords = listOf("спортзал", "физр", "физкульт", "тренажер", "зал спорт")
+        ),
+        CampusZone(
+            id = "canteen",
+            title = "Столовая / Буфет",
+            shortTitle = "Столовая",
+            floorLabel = "1 этаж",
+            keywords = listOf("столов", "буфет", "кафе", "обед", "кулер")
+        ),
+        CampusZone(
+            id = "lobby",
+            title = "Холл и вход (1 этаж)",
+            shortTitle = "Холл / Вход",
+            floorLabel = "1 этаж",
+            keywords = listOf("холл", "вход", "вахт", "турникет", "фойе", "1 этаж", "первый этаж", "крыльц")
+        ),
+        CampusZone(
+            id = "corridor",
+            title = "Коридор и рекреация",
+            shortTitle = "Коридор",
+            floorLabel = "1–3 этаж",
+            keywords = listOf("коридор", "рекреац", "лестниц", "подоконник", "лавочк", "диван", "туалет", "умывальн")
+        ),
+        CampusZone(
+            id = "classrooms",
+            title = "Учебные кабинеты",
+            shortTitle = "Кабинеты",
+            floorLabel = "2–3 этаж",
+            keywords = listOf("кабинет", "каб", "аудитор", "класс", "парт", "лаборатор", "2 этаж", "3 этаж", "этаж")
+        ),
+        CampusZone(
+            id = "library",
+            title = "Библиотека / Коворкинг",
+            shortTitle = "Библиотека",
+            floorLabel = "2 этаж",
+            keywords = listOf("библиотек", "читальн", "коворкинг", "медиатек")
+        ),
+        CampusZone(
+            id = "assembly",
+            title = "Актовый зал",
+            shortTitle = "Актовый зал",
+            floorLabel = "2 этаж",
+            keywords = listOf("актов", "сцен", "концерт")
+        ),
+        CampusZone(
+            id = "yard",
+            title = "Двор / Стадион",
+            shortTitle = "Двор / Стадион",
+            floorLabel = "Территория",
+            keywords = listOf("двор", "стадион", "площадк", "улиц", "парковк", "велопарковк", "ворота")
+        )
+    )
+
+    /** Определяет зону по произвольному тексту места (или возвращает null, если место нестандартное). */
+    fun matchZone(rawPlace: String): CampusZone? {
+        val norm = rawPlace.trim().lowercase().replace('ё', 'е')
+        if (norm.isBlank()) return null
+        ALL.firstOrNull { it.title.lowercase().replace('ё', 'е') == norm }?.let { return it }
+        return ALL.firstOrNull { zone ->
+            zone.keywords.any { kw -> norm.contains(kw) }
+        }
+    }
 }

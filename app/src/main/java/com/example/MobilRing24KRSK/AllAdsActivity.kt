@@ -1,6 +1,7 @@
 package com.example.MobilRing24KRSK
 
 import android.content.Context
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -51,6 +52,7 @@ import androidx.compose.ui.unit.sp
 import com.example.MobilRing24KRSK.data.AdCategories
 import com.example.MobilRing24KRSK.data.AdItem
 import com.example.MobilRing24KRSK.data.AdType
+import com.example.MobilRing24KRSK.data.CampusZones
 import com.example.MobilRing24KRSK.data.FirebaseRepo
 import com.example.MobilRing24KRSK.data.PhotoStore
 import com.example.MobilRing24KRSK.ui.components.SimpleScreen
@@ -71,11 +73,19 @@ class AllAdsActivity : ComponentActivity() {
         enableEdgeToEdge()
         applyLightSystemBars()
         val repo = FirebaseRepo(this)
+        val initialZoneId = intent.getStringExtra(EXTRA_ZONE_ID)
         setContent {
             LostAndFindTheme {
-                AllAdsScreen(repo)
+                AllAdsScreen(repo = repo, initialZoneId = initialZoneId)
             }
         }
+    }
+
+    companion object {
+        const val EXTRA_ZONE_ID = "filter_zone_id"
+
+        fun intentForZone(context: Context, zoneId: String): Intent =
+            Intent(context, AllAdsActivity::class.java).putExtra(EXTRA_ZONE_ID, zoneId)
     }
 }
 
@@ -162,7 +172,7 @@ private fun rangeLabel(from: Long, to: Long): String {
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AllAdsScreen(repo: FirebaseRepo) {
+fun AllAdsScreen(repo: FirebaseRepo, initialZoneId: String? = null) {
     val context = LocalContext.current
     var onlyMine by remember { mutableStateOf(false) }
     var typeFilter by remember { mutableStateOf(TypeFilter.ALL) }
@@ -170,12 +180,12 @@ fun AllAdsScreen(repo: FirebaseRepo) {
     var categoryFilter by remember { mutableStateOf<String?>(null) }
     // null — любое место; иначе точное совпадение с текстом места.
     var placeFilter by remember { mutableStateOf<String?>(null) }
+    var zoneFilterId by remember { mutableStateOf(initialZoneId?.takeIf { it.isNotBlank() }) }
     // Поиск по названию, описанию и месту — без учёта регистра.
     var query by remember { mutableStateOf("") }
     // Диапазон дат потери/находки в миллисекундах; 0 — граница не задана.
     var dateFrom by remember { mutableStateOf(0L) }
     var dateTo by remember { mutableStateOf(0L) }
-    var rangeOpen by remember { mutableStateOf(false) }
     // Какую границу периода сейчас выбираем: 1 — начало, 2 — конец, 0 — диалог закрыт.
     var pickerFor by remember { mutableStateOf(0) }
     var ads by remember { mutableStateOf<List<AdItem>>(emptyList()) }
@@ -218,6 +228,9 @@ fun AllAdsScreen(repo: FirebaseRepo) {
         .filter { ad -> !onlyMine || ad.isMine }
         .filter { ad -> categoryFilter == null || ad.category == categoryFilter }
         .filter { ad -> placeFilter == null || ad.place.trim() == placeFilter }
+        .filter { ad ->
+            zoneFilterId == null || CampusZones.matchZone(ad.place)?.id == zoneFilterId
+        }
         .filter { ad ->
             if (trimmedQuery.isBlank()) {
                 true
@@ -286,6 +299,14 @@ fun AllAdsScreen(repo: FirebaseRepo) {
                 selected = onlyMine,
                 onClick = { onlyMine = !onlyMine }
             )
+            val activeZone = CampusZones.ALL.firstOrNull { it.id == zoneFilterId }
+            if (activeZone != null) {
+                FilterPill(
+                    label = "Зона: ${activeZone.shortTitle} ×",
+                    selected = true,
+                    onClick = { zoneFilterId = null }
+                )
+            }
         }
         Spacer(Modifier.height(10.dp))
         Row(
@@ -367,7 +388,7 @@ fun AllAdsScreen(repo: FirebaseRepo) {
                 label = "СВОЙ ПЕРИОД",
                 selected = dateFrom != 0L && dateTo != 0L &&
                     DatePreset.entries.none { it.range() == dateFrom to dateTo },
-                onClick = { rangeOpen = true }
+                onClick = { pickerFor = 1 }
             )
         }
         if (dateFrom != 0L || dateTo != 0L) {
@@ -452,22 +473,20 @@ private fun AdCard(ad: AdItem, onClick: () -> Unit) {
                         .border(1.dp, Ink, RoundedCornerShape(4.dp))
                         .padding(horizontal = 8.dp, vertical = 4.dp)
                 )
-                Spacer(Modifier.weight(1f))
-                Text(text = ad.date, fontSize = 12.sp, color = Muted)
-            }
-            if (ad.closed) {
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.padding(start = 6.dp))
                 Text(
-                    text = if (ad.type == AdType.LOST) "ВЕЩЬ НАЙДЕНА" else "ВЕЩЬ ВОЗВРАЩЕНА",
+                    text = ad.statusLabel,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
                     color = Ink,
                     modifier = Modifier
                         .clip(RoundedCornerShape(4.dp))
-                        .background(Paper)
+                        .background(if (ad.closed) Paper else BrandBlue.copy(alpha = 0.45f))
                         .border(1.dp, Ink, RoundedCornerShape(4.dp))
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                        .padding(horizontal = 6.dp, vertical = 4.dp)
                 )
+                Spacer(Modifier.weight(1f))
+                Text(text = ad.date, fontSize = 12.sp, color = Muted)
             }
             Spacer(Modifier.height(8.dp))
 

@@ -18,8 +18,9 @@ Android-приложение для бюро находок: человек пу
 | Уведомления | `NotificationsActivity` | карточки совпадений из узла `matches` |
 | Профиль | `ProfileActivity` | ФИО, адрес, телефон, фото; переключатели приватности (показывать телефон, показывать адрес) и ключ восстановления |
 | Восстановление | `RestoreActivity` | вход по 16-значному ключу, перенос аккаунта на другой телефон |
-| Новая заявка | `ReportActivity` | форма с выбором даты потери/находки |
-| Справка | `HelpActivity` | инструкция и правила безопасности |
+| Новая заявка | `ReportActivity` | форма подачи пропажи/находки с выбором школьной зоны, даты, фото и кнопкой «ПОМОЧЬ С ОПИСАНИЕМ (ИИ)» |
+| Карта зон и рейтинг | `HeatmapActivity` | интерактивная тепловая карта помещений школы («Зоны, где чаще забывают вещи») и «Доска почёта» с рейтингом надёжности и благодарностями |
+| Справка | `HelpActivity` | инструкция по всем функциям бюро находок и правила безопасности |
 
 ## Как устроено
 
@@ -37,10 +38,13 @@ Android-приложение для бюро находок: человек пу
 ### Схема базы
 
 ```
-lost/{key}     id, name, location, info, date, eventDate, closed, userId, category, photo
+lost/{key}     id, name, location, info, date, eventDate, closed, userId, category, photo,
+               verifiedReturn, finderId, finderName, receiverId, returnedAt
 found/{key}    то же самое
 users/{uid}    name, phone, address, about, showPhone, showAddress — контакты автора
 matches/{key}  lostId, findId, createdAt, score, confidence, method, reason
+returnCodes/{adId} code, adId, adType, ownerId, ownerName, createdAt, used, usedBy, usedAt
+thanks/{toUid}/{thankId} adId, adTitle, fromUserId, fromName, toUserId, stars, badge, comment, verifiedByCode, createdAt
 chats/{chatId} adId, adTitle, adType, createdAt, lastText, lastAt, participants
 chats/{chatId}/messages/{pushId}  senderId, senderName, text, at
 ```
@@ -135,12 +139,14 @@ app/src/main/java/com/example/MobilRing24KRSK/
 ├── NotificationsActivity.kt   совпадения
 ├── ProfileActivity.kt         профиль, приватность, ключ восстановления
 ├── RestoreActivity.kt         вход по ключу на новом телефоне
-├── ReportActivity.kt          форма заявки
+├── ReportActivity.kt          форма заявки, школьные зоны, ИИ-помощник описания
+├── HeatmapActivity.kt         тепловая карта помещений и доска почёта
 ├── HelpActivity.kt            справка
 ├── SystemBars.kt              светлые иконки системных панелей
 ├── data/
-│   ├── AppData.kt             AdItem, NotificationItem, AdType
-│   ├── FirebaseRepo.kt        вход, публикация, живая лента, статус
+│   ├── AppData.kt             AdItem, NotificationItem, AdType, CampusZones
+│   ├── FirebaseRepo.kt        вход, публикация, живая лента, статус, догрузка фото
+│   ├── ReturnAndTrustRepo.kt  6-значные коды возврата, рейтинг надёжности, благодарности
 │   ├── ChatRepo.kt            переписки: заголовки чатов и сообщения
 │   ├── PhotoStore.kt          сжатие выбранного фото и base64
 │   ├── RecoveryKey.kt         ключ восстановления: создание, привязка, вход

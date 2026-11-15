@@ -71,6 +71,11 @@
             android:label="Справка" />
 
         <activity
+            android:name=".HeatmapActivity"
+            android:exported="false"
+            android:label="Карта зон и рейтинг" />
+
+        <activity
             android:name=".ReportActivity"
             android:exported="false"
             android:label="Новое объявление"

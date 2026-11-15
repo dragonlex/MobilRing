@@ -36,7 +36,12 @@ data class AdRecord(
     var category: String = "",
     var closed: Boolean = false,
     var userId: String = "",
-    var photo: String = ""
+    var photo: String = "",
+    var verifiedReturn: Boolean = false,
+    var finderId: String = "",
+    var finderName: String = "",
+    var receiverId: String = "",
+    var returnedAt: Long = 0L
 )
 
 data class UserRecord(
@@ -315,6 +320,27 @@ class FirebaseRepo(context: Context) {
             }
     }
 
+    /** Подгружает base64-снимок одного объявления, если его ещё нет в памяти PhotoStore. */
+    fun loadAdPhoto(type: AdType, key: String, onResult: (String) -> Unit) {
+        if (key.isBlank()) {
+            onResult("")
+            return
+        }
+        AuthGate.ensure { authorized ->
+            if (!authorized) {
+                onResult("")
+                return@ensure
+            }
+            database.getReference(type.node).child(key).child("photo").get()
+                .addOnSuccessListener { snapshot ->
+                    val raw = snapshot.getValue(String::class.java).orEmpty()
+                    if (raw.isNotBlank()) PhotoStore.putByAdId(key, raw)
+                    onResult(raw)
+                }
+                .addOnFailureListener { onResult("") }
+        }
+    }
+
     /**
      * Удаляет своё объявление вместе со всеми парами, где оно участвовало.
      *
@@ -515,6 +541,9 @@ class DbFeed(
 
     private fun AdRecord.toItem(id: String, type: AdType, mine: Boolean): AdItem {
         val owner = users[userId]
+        if (photo.isNotBlank()) {
+            PhotoStore.putByAdId(id, photo)
+        }
         // Свои контакты владелец видит всегда, чужие — только если он их не скрыл.
         val phoneVisible = mine || (owner?.showPhone ?: true)
         val addressVisible = mine || (owner?.showAddress ?: true)
@@ -537,7 +566,14 @@ class DbFeed(
             category = category,
             ownerId = userId,
             photo = photo,
-            ownerPhoneHidden = !phoneVisible && !owner?.phone.isNullOrBlank()
+            ownerPhoneHidden = !phoneVisible && !owner?.phone.isNullOrBlank(),
+            verifiedReturn = verifiedReturn,
+            finderId = finderId,
+            finderName = finderName.ifBlank {
+                if (finderId.isNotBlank()) users[finderId]?.name.orEmpty() else ""
+            },
+            receiverId = receiverId,
+            returnedAt = returnedAt
         )
     }
 

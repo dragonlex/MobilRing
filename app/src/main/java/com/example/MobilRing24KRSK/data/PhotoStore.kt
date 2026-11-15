@@ -32,6 +32,20 @@ object PhotoStore {
         override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount / 1024
     }
 
+    /** Временный кеш base64-фото по ID объявления, чтобы не передавать большие строки через Intent. */
+    private val adPhotos = object : LruCache<String, String>(64) {}
+
+    fun putByAdId(adId: String, base64: String) {
+        if (adId.isNotBlank() && base64.isNotBlank()) {
+            adPhotos.put(adId, base64)
+        }
+    }
+
+    fun getByAdId(adId: String): String {
+        if (adId.isBlank()) return ""
+        return adPhotos.get(adId).orEmpty()
+    }
+
     /**
      * Читает картинку по [uri], уменьшает её и возвращает base64 (JPEG).
      * Пустая строка — прочитать не удалось.
