@@ -33,6 +33,7 @@ data class AdRecord(
     var date: Long = 0L,
     var eventDate: Long = 0L,
     var info: String = "",
+    var category: String = "",
     var closed: Boolean = false,
     var userId: String = ""
 )
@@ -140,16 +141,17 @@ class FirebaseRepo(context: Context) {
         title: String,
         place: String,
         description: String,
+        category: String,
         eventDate: Long,
         profile: Profile,
         onResult: (success: Boolean, message: String) -> Unit
     ) {
         AuthGate.ensure { authorized ->
             if (!authorized) {
-                onResult(false, "ÐÐµ ÑƒÐ´Ð°Ð»Ð¾ÑÑŒ Ð²Ð¾Ð¹Ñ‚Ð¸ Ð² Firebase Ð°Ð½Ð¾Ð½Ð¸Ð¼Ð½Ð¾")
+                onResult(false, "Не удалось войти в Firebase анонимно")
                 return@ensure
             }
-            pushAd(type, title, place, description, eventDate, profile, onResult)
+            pushAd(type, title, place, description, category, eventDate, profile, onResult)
         }
     }
 
@@ -164,6 +166,7 @@ class FirebaseRepo(context: Context) {
         title: String,
         place: String,
         description: String,
+        category: String,
         eventDate: Long,
         profile: Profile,
         onResult: (success: Boolean, message: String) -> Unit
@@ -183,6 +186,7 @@ class FirebaseRepo(context: Context) {
             date = System.currentTimeMillis(),
             eventDate = if (eventDate > 0L) eventDate else System.currentTimeMillis(),
             info = description.trim(),
+            category = category.trim(),
             closed = false,
             userId = AuthGate.userId()
         )
@@ -209,6 +213,25 @@ class FirebaseRepo(context: Context) {
     }
 
     fun feed(): DbFeed = DbFeed(database)
+
+    /**
+     * Ставит или снимает отметку «вещь найдена / возвращена».
+     *
+     * Меняется только поле closed у одной записи — сама заявка и история переписки
+     * остаются на месте, поэтому объявление легко открыть снова.
+     */
+    fun setClosed(
+        type: AdType,
+        key: String,
+        closed: Boolean,
+        onResult: (success: Boolean, message: String) -> Unit
+    ) {
+        database.getReference(type.node).child(key).child("closed").setValue(closed)
+            .addOnSuccessListener { onResult(true, "") }
+            .addOnFailureListener { error ->
+                onResult(false, error.message ?: "Не удалось изменить статус объявления")
+            }
+    }
 
     /**
      * Удаляет своё объявление вместе со всеми парами, где оно участвовало.
@@ -425,7 +448,9 @@ class DbFeed(
             ownerName = owner?.name.orEmpty(),
             ownerPhone = owner?.phone.orEmpty(),
             ownerAddress = owner?.address.orEmpty(),
-            ownerAbout = owner?.about.orEmpty()
+            ownerAbout = owner?.about.orEmpty(),
+            category = category,
+            ownerId = userId
         )
     }
 

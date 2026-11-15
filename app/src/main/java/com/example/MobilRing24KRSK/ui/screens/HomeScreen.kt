@@ -73,6 +73,7 @@ fun HomeScreen(
     onReportLostClick: () -> Unit,
     onReportFoundClick: () -> Unit,
     onAllAdsClick: () -> Unit,
+    onChatsClick: () -> Unit,
     onHelpClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -204,6 +205,13 @@ fun HomeScreen(
             DoodleButton(
                 text = "ВСЕ ОБЪЯВЛЕНИЯ",
                 onClick = onAllAdsClick
+            )
+            Spacer(Modifier.height(12.dp))
+            SmallDoodleButton(
+                text = "СООБЩЕНИЯ",
+                onClick = onChatsClick,
+                color = Paper,
+                modifier = Modifier.fillMaxWidth()
             )
 
             if (!profileComplete) {

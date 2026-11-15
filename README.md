@@ -11,8 +11,10 @@ Android-приложение для бюро находок: человек пу
 | Экран | Файл | Что делает |
 |---|---|---|
 | Главный | `MainActivity` + `ui/screens/HomeScreen.kt` | кнопки «Сообщить о пропаже/находке», бейдж уведомлений, аватар |
-| Все объявления | `AllAdsActivity` | лента потерь и находок, фильтры «Моё / ВСЕ / ПОТЕРИ / НАХОДКИ» |
-| Просмотр объявления | `AdDetailActivity` | полное описание, контакты автора, кнопка «ПОЗВОНИТЬ»; у своего объявления — «УДАЛИТЬ ОБЪЯВЛЕНИЕ» |
+| Все объявления | `AllAdsActivity` | лента потерь и находок, фильтры «Моё / ВСЕ / ПОТЕРИ / НАХОДКИ» и по категориям |
+| Просмотр объявления | `AdDetailActivity` | полное описание, контакты автора, «ПОЗВОНИТЬ», «НАПИСАТЬ В ЧАТ»; у своего объявления — «ОТМЕТИТЬ КАК НАЙДЕНО» / «ВЕРНУТЬ В ПОИСК» и «УДАЛИТЬ ОБЪЯВЛЕНИЕ» |
+| Сообщения | `ChatsActivity` | список переписок с последним сообщением и датой |
+| Чат | `ChatActivity` | переписка по конкретному объявлению, сообщения обновляются в реальном времени |
 | Уведомления | `NotificationsActivity` | карточки совпадений из узла `matches` |
 | Профиль | `ProfileActivity` | ФИО, адрес, телефон, фото; без них публикация недоступна |
 | Новая заявка | `ReportActivity` | форма с выбором даты потери/находки |
@@ -34,11 +36,19 @@ Android-приложение для бюро находок: человек пу
 ### Схема базы
 
 ```
-lost/{key}     id, name, location, info, date, eventDate, closed, userId
+lost/{key}     id, name, location, info, date, eventDate, closed, userId, category
 found/{key}    то же самое
 users/{uid}    name, phone, address, about      — контакты автора
 matches/{key}  lostId, findId, createdAt, score, confidence, method, reason
+chats/{chatId} adId, adTitle, adType, createdAt, lastText, lastAt, participants
+chats/{chatId}/messages/{pushId}  senderId, senderName, text, at
 ```
+
+`chatId` — два uid в отсортированном порядке, соединённые `__`, плюс `__adId`,
+поэтому у каждой пары «объявление + собеседник» ровно одна переписка.
+
+`closed` — объявление закрыто: вещь нашлась или вернулась владельцу. Закрытые
+объявления остаются в базе и в переписке, но помечаются бейджем «ВЕЩЬ НАЙДЕНА».
 
 `date` — время публикации, `eventDate` — дата потери/находки (полночь по местному времени
 отправителя). Ключи в базе строчные: при чтении в `matcher.py` они приводятся через `field()`.
@@ -94,7 +104,9 @@ adb install -r app\build\outputs\apk\debug\app-debug.apk
 app/src/main/java/com/example/MobilRing24KRSK/
 ├── MainActivity.kt            главный экран
 ├── AllAdsActivity.kt          лента
-├── AdDetailActivity.kt        просмотр объявления и звонок
+├── AdDetailActivity.kt        просмотр объявления, звонок, статус, вход в чат
+├── ChatsActivity.kt           список переписок
+├── ChatActivity.kt            переписка по объявлению
 ├── NotificationsActivity.kt   совпадения
 ├── ProfileActivity.kt         профиль
 ├── ReportActivity.kt          форма заявки
@@ -102,7 +114,8 @@ app/src/main/java/com/example/MobilRing24KRSK/
 ├── SystemBars.kt              светлые иконки системных панелей
 ├── data/
 │   ├── AppData.kt             AdItem, NotificationItem, AdType
-│   ├── FirebaseRepo.kt        вход, публикация, живая лента
+│   ├── FirebaseRepo.kt        вход, публикация, живая лента, статус
+│   ├── ChatRepo.kt            переписки: заголовки чатов и сообщения
 │   └── Profile.kt             Profile, ProfileStore
 └── ui/
     ├── components/            DoodleButton, SimpleScreen, AvatarImage
@@ -118,4 +131,7 @@ app/src/main/java/com/example/MobilRing24KRSK/
 ## Статус
 
 Рабочая версия 1.0: публикация, лента, совпадения, звонок автору объявления.
-Проверено на Android 10, 14 и 16, а также на эмуляторе Android 14.
+Добавлено в 1.1: категории вещей, статус «вещь найдена» и переписка внутри приложения
+(список сообщений и чат по объявлению, сообщения приходят в реальном времени).
+Проверено на Android 10, 14 и 16, а также на эмуляторе Android 14; чат проверен
+на двух телефонах одновременно.

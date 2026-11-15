@@ -50,6 +50,7 @@ class MainActivity : ComponentActivity() {
                     onReportLostClick = { openReport(ReportActivity.TYPE_LOST) },
                     onReportFoundClick = { openReport(ReportActivity.TYPE_FOUND) },
                     onAllAdsClick = { open(AllAdsActivity::class.java) },
+                    onChatsClick = { open(ChatsActivity::class.java) },
                     onHelpClick = { open(HelpActivity::class.java) }
                 )
             }
@@ -105,6 +106,7 @@ fun HomeScreenPreview() {
             onReportLostClick = {},
             onReportFoundClick = {},
             onAllAdsClick = {},
+            onChatsClick = {},
             onHelpClick = {}
         )
     }

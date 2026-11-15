@@ -46,9 +46,12 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.example.MobilRing24KRSK.data.AdItem
 import com.example.MobilRing24KRSK.data.AdType
+import com.example.MobilRing24KRSK.data.AuthGate
+import com.example.MobilRing24KRSK.data.ChatRepo
 import com.example.MobilRing24KRSK.data.FirebaseRepo
 import com.example.MobilRing24KRSK.ui.components.DoodleButton
 import com.example.MobilRing24KRSK.ui.components.SimpleScreen
+import com.example.MobilRing24KRSK.ui.components.SmallDoodleButton
 import com.example.MobilRing24KRSK.ui.theme.BrandBlue
 import com.example.MobilRing24KRSK.ui.theme.Ink
 import com.example.MobilRing24KRSK.ui.theme.LostAndFindTheme
@@ -88,9 +91,27 @@ class AdDetailActivity : ComponentActivity() {
             null
         }
 
+        // Статус «вещь найдена» меняет только владелец объявления.
+        val onToggleClosed: ((Boolean, (Boolean) -> Unit) -> Unit)? =
+            if (ad.isMine && ad.id.isNotBlank()) {
+                { closed, done ->
+                    repo.setClosed(ad.type, ad.id, closed) { success, message ->
+                        done(success)
+                        if (success) {
+                            val text = if (closed) "Отмечено: вещь найдена" else "Объявление снова в поиске"
+                            Toast.makeText(this, text, Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(this, "Ошибка: $message", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }
+            } else {
+                null
+            }
+
         setContent {
             LostAndFindTheme {
-                AdDetailScreen(ad = ad, onDelete = onDelete)
+                AdDetailScreen(ad = ad, onDelete = onDelete, onToggleClosed = onToggleClosed)
             }
         }
     }
@@ -113,7 +134,10 @@ class AdDetailActivity : ComponentActivity() {
             ownerName = intent.getStringExtra(EXTRA_OWNER_NAME).orEmpty(),
             ownerPhone = intent.getStringExtra(EXTRA_OWNER_PHONE).orEmpty(),
             ownerAddress = intent.getStringExtra(EXTRA_OWNER_ADDRESS).orEmpty(),
-            ownerAbout = intent.getStringExtra(EXTRA_OWNER_ABOUT).orEmpty()
+            ownerAbout = intent.getStringExtra(EXTRA_OWNER_ABOUT).orEmpty(),
+            category = intent.getStringExtra(EXTRA_CATEGORY).orEmpty(),
+            ownerId = intent.getStringExtra(EXTRA_OWNER_ID).orEmpty(),
+            closed = intent.getBooleanExtra(EXTRA_CLOSED, false)
         )
     }
 
@@ -130,6 +154,9 @@ class AdDetailActivity : ComponentActivity() {
         private const val EXTRA_OWNER_PHONE = "detail_owner_phone"
         private const val EXTRA_OWNER_ADDRESS = "detail_owner_address"
         private const val EXTRA_OWNER_ABOUT = "detail_owner_about"
+        private const val EXTRA_CATEGORY = "detail_category"
+        private const val EXTRA_OWNER_ID = "detail_owner_id"
+        private const val EXTRA_CLOSED = "detail_closed"
 
         fun intentFor(context: Context, ad: AdItem): Intent =
             Intent(context, AdDetailActivity::class.java).apply {
@@ -145,6 +172,9 @@ class AdDetailActivity : ComponentActivity() {
                 putExtra(EXTRA_OWNER_PHONE, ad.ownerPhone)
                 putExtra(EXTRA_OWNER_ADDRESS, ad.ownerAddress)
                 putExtra(EXTRA_OWNER_ABOUT, ad.ownerAbout)
+                putExtra(EXTRA_CATEGORY, ad.category)
+                putExtra(EXTRA_OWNER_ID, ad.ownerId)
+                putExtra(EXTRA_CLOSED, ad.closed)
             }
     }
 }
@@ -177,11 +207,17 @@ private fun startCall(context: Context, number: String, direct: Boolean) {
 }
 
 @Composable
-fun AdDetailScreen(ad: AdItem, onDelete: (() -> Unit)? = null) {
+fun AdDetailScreen(
+    ad: AdItem,
+    onDelete: (() -> Unit)? = null,
+    onToggleClosed: ((Boolean, (Boolean) -> Unit) -> Unit)? = null
+) {
     val context = LocalContext.current
     val number = dialNumber(ad.ownerPhone)
     val canCall = number.isNotBlank()
     var confirmDelete by remember { mutableStateOf(false) }
+    // Статус держим в состоянии экрана: после нажатия кнопки его видно сразу, без перезагрузки.
+    var closed by remember { mutableStateOf(ad.closed) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -228,6 +264,34 @@ fun AdDetailScreen(ad: AdItem, onDelete: (() -> Unit)? = null) {
 
             Spacer(Modifier.height(14.dp))
             Text(text = ad.title, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = Ink)
+
+            if (closed) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = if (ad.type == AdType.LOST) "ВЕЩЬ НАЙДЕНА" else "ВЕЩЬ ВОЗВРАЩЕНА",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Ink,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(Paper)
+                        .border(2.dp, Ink, RoundedCornerShape(4.dp))
+                        .padding(horizontal = 8.dp, vertical = 3.dp)
+                )
+            }
+
+            if (ad.category.isNotBlank()) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = ad.category,
+                    fontSize = 12.sp,
+                    color = Ink,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(BrandBlue.copy(alpha = 0.6f))
+                        .padding(horizontal = 8.dp, vertical = 3.dp)
+                )
+            }
 
             if (ad.place.isNotBlank()) {
                 Spacer(Modifier.height(8.dp))
@@ -307,9 +371,50 @@ fun AdDetailScreen(ad: AdItem, onDelete: (() -> Unit)? = null) {
                     color = Muted
                 )
             }
+
+            // Переписка доступна только по чужому объявлению: с собой переписываться незачем.
+            if (!ad.isMine && ad.ownerId.isNotBlank()) {
+                Spacer(Modifier.height(12.dp))
+                SmallDoodleButton(
+                    text = "НАПИСАТЬ В ЧАТ",
+                    color = Paper,
+                    onClick = {
+                        AuthGate.ensure { authorized ->
+                            if (!authorized) {
+                                Toast.makeText(
+                                    context,
+                                    "Не удалось войти в Firebase",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                                return@ensure
+                            }
+                            val uid = AuthGate.userId()
+                            val chatRepo = ChatRepo()
+                            val chatId = chatRepo.chatId(uid, ad.ownerId, ad.id)
+                            chatRepo.ensureChat(chatId, ad, uid)
+                            context.startActivity(
+                                ChatActivity.intentFor(context, chatId, ad.title)
+                            )
+                        }
+                    }
+                )
+            }
             if (ad.isMine) {
                 Spacer(Modifier.height(12.dp))
                 Text(text = "это ваше объявление", fontSize = 12.sp, color = Muted)
+                if (onToggleClosed != null) {
+                    Spacer(Modifier.height(12.dp))
+                    SmallDoodleButton(
+                        text = if (closed) "ВЕРНУТЬ В ПОИСК" else "ОТМЕТИТЬ КАК НАЙДЕНО",
+                        color = if (closed) Paper else BrandBlue,
+                        onClick = {
+                            val next = !closed
+                            onToggleClosed.invoke(next) { success ->
+                                if (success) closed = next
+                            }
+                        }
+                    )
+                }
                 if (onDelete != null) {
                     Spacer(Modifier.height(12.dp))
                     DoodleButton(

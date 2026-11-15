@@ -37,6 +37,7 @@ data class NotificationItem(
  * @param eventDate дата потери/находки в миллисекундах (полночь по местному времени отправителя)
  * @param eventDateText та же дата строкой — её и показываем в карточке
  * @param ownerName/ownerPhone/ownerAddress/ownerAbout данные владельца из узла users
+ * @param category категория вещи (одежда, ключи, …) — из списка [AdCategories]
  */
 data class AdItem(
     val id: String,
@@ -53,8 +54,32 @@ data class AdItem(
     val ownerName: String = "",
     val ownerPhone: String = "",
     val ownerAddress: String = "",
-    val ownerAbout: String = ""
+    val ownerAbout: String = "",
+    val category: String = "",
+    val ownerId: String = ""
 )
+
+/**
+ * Список категорий вещей. Тот же список используется помощником описаний на сервере
+ * (`assist.py`), поэтому названия строк должны совпадать буква в букву.
+ */
+object AdCategories {
+    const val OTHER = "другое"
+
+    val ALL: List<String> = listOf(
+        "одежда",
+        "обувь",
+        "ключи",
+        "телефон и гаджеты",
+        "рюкзак и сумка",
+        "документы и карты",
+        "деньги и кошелёк",
+        "учебники и книги",
+        "спортивная форма",
+        "украшения и аксессуары",
+        OTHER
+    )
+}
 
 /**
  * Тип объявления. Значение [node] — имя узла в Firebase, куда пишется объявление,
