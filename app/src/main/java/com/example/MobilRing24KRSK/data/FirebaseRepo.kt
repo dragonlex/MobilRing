@@ -210,6 +210,38 @@ class FirebaseRepo(context: Context) {
 
     fun feed(): DbFeed = DbFeed(database)
 
+    /**
+     * Удаляет своё объявление вместе со всеми парами, где оно участвовало.
+     *
+     * Если оставить пары, в уведомлениях второй стороны появились бы ссылки
+     * на несуществующую заявку. Поэтому сначала собираем связанные ключи из matches,
+     * а потом одной операцией updateChildren удаляем и заявку, и пары.
+     * Проверка «это моё объявление» делается на экране: кнопка показывается только владельцу.
+     */
+    fun deleteAd(type: AdType, key: String, onResult: (success: Boolean, message: String) -> Unit) {
+        database.getReference(DbFeed.NODE_MATCHES).get()
+            .addOnSuccessListener { snapshot ->
+                val related = snapshot.children.mapNotNull { pair ->
+                    val lostId = pair.child("lostId").value?.toString().orEmpty()
+                    val findId = pair.child("findId").value?.toString().orEmpty()
+                    pair.key?.takeIf { lostId == key || findId == key }
+                }
+
+                val updates = hashMapOf<String, Any?>()
+                updates["${type.node}/$key"] = null
+                related.forEach { updates["${DbFeed.NODE_MATCHES}/$it"] = null }
+
+                database.reference.updateChildren(updates)
+                    .addOnSuccessListener { onResult(true, key) }
+                    .addOnFailureListener { error ->
+                        onResult(false, error.message ?: "Не удалось удалить объявление")
+                    }
+            }
+            .addOnFailureListener { error ->
+                onResult(false, error.message ?: "Не удалось прочитать совпадения")
+            }
+    }
+
     companion object {
         const val NODE_USERS = "users"
     }

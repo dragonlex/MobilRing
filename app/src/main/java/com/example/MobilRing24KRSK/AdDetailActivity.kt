@@ -26,10 +26,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -40,6 +46,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.example.MobilRing24KRSK.data.AdItem
 import com.example.MobilRing24KRSK.data.AdType
+import com.example.MobilRing24KRSK.data.FirebaseRepo
 import com.example.MobilRing24KRSK.ui.components.DoodleButton
 import com.example.MobilRing24KRSK.ui.components.SimpleScreen
 import com.example.MobilRing24KRSK.ui.theme.BrandBlue
@@ -64,9 +71,26 @@ class AdDetailActivity : ComponentActivity() {
         enableEdgeToEdge()
         applyLightSystemBars()
         val ad = readAd(intent)
+        val repo = FirebaseRepo(this)
+        // Кнопка удаления есть только у владельца: в AdItem уже посчитано isMine.
+        val onDelete: (() -> Unit)? = if (ad.isMine && ad.id.isNotBlank()) {
+            {
+                repo.deleteAd(ad.type, ad.id) { success, message ->
+                    if (success) {
+                        Toast.makeText(this, "Объявление удалено", Toast.LENGTH_SHORT).show()
+                        finish()
+                    } else {
+                        Toast.makeText(this, "Ошибка удаления: $message", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        } else {
+            null
+        }
+
         setContent {
             LostAndFindTheme {
-                AdDetailScreen(ad)
+                AdDetailScreen(ad = ad, onDelete = onDelete)
             }
         }
     }
@@ -153,10 +177,11 @@ private fun startCall(context: Context, number: String, direct: Boolean) {
 }
 
 @Composable
-fun AdDetailScreen(ad: AdItem) {
+fun AdDetailScreen(ad: AdItem, onDelete: (() -> Unit)? = null) {
     val context = LocalContext.current
     val number = dialNumber(ad.ownerPhone)
     val canCall = number.isNotBlank()
+    var confirmDelete by remember { mutableStateOf(false) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -285,8 +310,39 @@ fun AdDetailScreen(ad: AdItem) {
             if (ad.isMine) {
                 Spacer(Modifier.height(12.dp))
                 Text(text = "это ваше объявление", fontSize = 12.sp, color = Muted)
+                if (onDelete != null) {
+                    Spacer(Modifier.height(12.dp))
+                    DoodleButton(
+                        text = "УДАЛИТЬ ОБЪЯВЛЕНИЕ",
+                        onClick = { confirmDelete = true }
+                    )
+                }
             }
             Spacer(Modifier.height(24.dp))
         }
+    }
+
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text("Удалить объявление?") },
+            text = {
+                Text(
+                    "Оно исчезнет из ленты вместе с найденными совпадениями. " +
+                            "Вернуть объявление будет нельзя."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmDelete = false
+                        onDelete?.invoke()
+                    }
+                ) { Text("УДАЛИТЬ") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDelete = false }) { Text("ОТМЕНА") }
+            }
+        )
     }
 }
