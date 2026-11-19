@@ -1,4 +1,4 @@
-package com.example.MobilRing24KRSK
+﻿package com.example.MobilRing24KRSK
 
 import android.os.Bundle
 import android.net.Uri
@@ -25,7 +25,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -48,6 +47,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.MobilRing24KRSK.data.AdCategories
+import com.example.MobilRing24KRSK.data.AssistRepo
 import com.example.MobilRing24KRSK.data.AdType
 import com.example.MobilRing24KRSK.data.CampusZones
 import com.example.MobilRing24KRSK.data.FirebaseRepo
@@ -62,16 +62,17 @@ import com.example.MobilRing24KRSK.ui.theme.LostAndFindTheme
 import com.example.MobilRing24KRSK.ui.theme.Muted
 import com.example.MobilRing24KRSK.ui.theme.Paper
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
+
+/** Сколько ждём ответ сервиса подсказок, прежде чем отписаться от заявки. */
+private const val ASSIST_TIMEOUT_MS = 120_000L
 
 /**
  * Форма «Сообщить о пропаже / о находке».
@@ -196,12 +197,8 @@ fun ReportScreen(
     var pickerOpen by remember { mutableStateOf(false) }
     var sending by remember { mutableStateOf(false) }
     var helping by remember { mutableStateOf(false) }
-    val aiPrefs = remember { context.getSharedPreferences(AI_PREFS, android.content.Context.MODE_PRIVATE) }
-    var assistHost by remember {
-        mutableStateOf(aiPrefs.getString(KEY_ASSIST_HOST, DEFAULT_ASSIST_HOST).orEmpty().ifBlank { DEFAULT_ASSIST_HOST })
-    }
-    var hostDialogOpen by remember { mutableStateOf(false) }
-    var hostDraft by remember { mutableStateOf(assistHost) }
+    // Отмена текущей заявки на описание: снимает подписку и убирает запись из базы.
+    var cancelAssist by remember { mutableStateOf<() -> Unit>({}) }
     val scope = rememberCoroutineScope()
 
     // Выбор снимка из галереи. Сжатие в base64 идёт в фоне, чтобы не подвешивать форму.
@@ -352,7 +349,8 @@ fun ReportScreen(
 
             Spacer(Modifier.height(12.dp))
 
-            // Помощь с описанием: сервис на компьютере пишет текст по вещи и месту.
+            // Помощь с описанием: заявка уходит в базу, сервис на компьютере
+            // замечает её там же, дописывает текст и приложение забирает ответ.
             SmallDoodleButton(
                 text = if (helping) "ПИШУ ОПИСАНИЕ…" else "ПОМОЧЬ С ОПИСАНИЕМ (ИИ)",
                 color = Paper,
@@ -363,30 +361,35 @@ fun ReportScreen(
                             Toast.makeText(context, "Сначала укажите, что за вещь", Toast.LENGTH_SHORT).show()
                         else -> {
                             helping = true
-                            scope.launch {
-                                val result = withContext(Dispatchers.IO) {
-                                    runCatching { requestDescription(assistHost, isLost, title, place, category) }
-                                }
+                            val request = AssistRepo().ask(
+                                type = if (isLost) AdType.LOST else AdType.FOUND,
+                                title = title,
+                                place = place,
+                                category = category
+                            ) { ok, message ->
+                                cancelAssist = {}
                                 helping = false
-                                result
-                                    .onSuccess { text ->
-                                        if (text.isBlank()) {
-                                            Toast.makeText(
-                                                context,
-                                                "Сервис вернул пустой ответ",
-                                                Toast.LENGTH_SHORT
-                                            ).show()
-                                        } else {
-                                            description = text
-                                        }
-                                    }
-                                    .onFailure { error ->
-                                        Toast.makeText(
-                                            context,
-                                            "Помощь недоступна: ${error.message}",
-                                            Toast.LENGTH_LONG
-                                        ).show()
-                                    }
+                                if (ok) {
+                                    description = message
+                                    Toast.makeText(context, "ОК", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    Toast.makeText(context, "Помощь недоступна: $message", Toast.LENGTH_LONG).show()
+                                }
+                            }
+                            cancelAssist = request
+                            // Страховка: если сервис молчит дольше двух минут, отписываемся.
+                            scope.launch {
+                                delay(ASSIST_TIMEOUT_MS)
+                                if (helping) {
+                                    cancelAssist()
+                                    cancelAssist = {}
+                                    helping = false
+                                    Toast.makeText(
+                                        context,
+                                        "Сервис не ответил за 2 минуты",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                }
                             }
                         }
                     }
@@ -394,13 +397,9 @@ fun ReportScreen(
             )
             Spacer(Modifier.height(6.dp))
             Text(
-                text = "Сервер ИИ: $assistHost:5002 (нажмите, чтобы изменить IP)",
+                text = "Заявка уходит в базу, описание вернётся туда же — сервис на компьютере подписан на неё.",
                 fontSize = 12.sp,
-                color = Muted,
-                modifier = Modifier.clickable {
-                    hostDraft = assistHost
-                    hostDialogOpen = true
-                }
+                color = Muted
             )
 
             Spacer(Modifier.height(20.dp))
@@ -451,111 +450,6 @@ fun ReportScreen(
         ) {
             DatePicker(state = pickerState)
         }
-    }
-
-    if (hostDialogOpen) {
-        AlertDialog(
-            onDismissRequest = { hostDialogOpen = false },
-            title = { Text("Адрес ИИ-помощника") },
-            text = {
-                Column {
-                    Text(
-                        text = "Укажите IP компьютера в вашей Wi-Fi сети, где запущен assist.py (порт 5002). Для эмулятора подходит 10.0.2.2.",
-                        fontSize = 13.sp,
-                        color = Muted
-                    )
-                    Spacer(Modifier.height(10.dp))
-                    OutlinedTextField(
-                        value = hostDraft,
-                        onValueChange = { hostDraft = it },
-                        label = { Text("IP или хост (например, 192.168.0.111)") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    val cleaned = hostDraft.trim()
-                        .removePrefix("http://")
-                        .removePrefix("https://")
-                        .substringBefore(":")
-                        .substringBefore("/")
-                        .ifBlank { DEFAULT_ASSIST_HOST }
-                    assistHost = cleaned
-                    aiPrefs.edit().putString(KEY_ASSIST_HOST, cleaned).apply()
-                    hostDialogOpen = false
-                }) { Text("СОХРАНИТЬ") }
-            },
-            dismissButton = {
-                TextButton(onClick = { hostDialogOpen = false }) { Text("ОТМЕНА") }
-            }
-        )
-    }
-}
-
-private const val AI_PREFS = "ai_assist_prefs"
-private const val KEY_ASSIST_HOST = "assist_host"
-private const val DEFAULT_ASSIST_HOST = "192.168.0.111"
-private const val ASSIST_PORT = 5002
-
-/**
- * Просит у сервиса готовое описание вещи и возвращает текст.
- *
- * Пробует сначала указанный пользователем IP, а если он недоступен (например, запущено
- * в эмуляторе Android), проверяет 10.0.2.2 и 127.0.0.1.
- */
-private fun requestDescription(
-    preferredHost: String,
-    isLost: Boolean,
-    title: String,
-    place: String,
-    category: String
-): String {
-    val hosts = listOf(preferredHost.trim(), DEFAULT_ASSIST_HOST, "10.0.2.2", "127.0.0.1")
-        .filter { it.isNotBlank() }
-        .distinct()
-
-    var lastError: Throwable? = null
-    for (host in hosts) {
-        val url = "http://$host:$ASSIST_PORT/describe"
-        val result = runCatching { postDescribe(url, isLost, title, place, category) }
-        if (result.isSuccess) return result.getOrThrow()
-        lastError = result.exceptionOrNull()
-    }
-    throw (lastError ?: IllegalStateException("сервер ИИ не отвечает"))
-}
-
-private fun postDescribe(
-    url: String,
-    isLost: Boolean,
-    title: String,
-    place: String,
-    category: String
-): String {
-    val connection = (URL(url).openConnection() as HttpURLConnection).apply {
-        requestMethod = "POST"
-        connectTimeout = 3500
-        readTimeout = 90000
-        doOutput = true
-        setRequestProperty("Content-Type", "application/json; charset=utf-8")
-    }
-    try {
-        val body = JSONObject()
-            .put("type", if (isLost) "lost" else "found")
-            .put("title", title)
-            .put("place", place)
-            .put("category", category)
-            .toString()
-        connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
-
-        val code = connection.responseCode
-        val stream = if (code in 200..299) connection.inputStream else connection.errorStream
-        val raw = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
-        if (code !in 200..299) error("сервис ответил кодом $code")
-        return JSONObject(raw).optString("text").trim()
-    } finally {
-        connection.disconnect()
     }
 }
 
