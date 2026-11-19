@@ -47,7 +47,7 @@ fun HelpScreen() {
                 .verticalScroll(rememberScrollState())
         ) {
             Text(
-                text = "MobilRing — цифровое бюро находок для школы и колледжа",
+                text = "Бюро находок — цифровой сервис для школы и колледжа",
                 fontSize = 18.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = Ink
@@ -107,7 +107,7 @@ fun HelpScreen() {
 
             Spacer(Modifier.height(16.dp))
             Text(
-                text = "Версия 2.0 · MobilRing Кейс №4 «Бюро находок»",
+                text = "Версия 2.0 · Кейс №4 «Бюро находок»",
                 fontSize = 12.sp,
                 color = Muted
             )
