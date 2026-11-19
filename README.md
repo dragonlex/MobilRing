@@ -86,4 +86,5 @@ Firebase Storage не используется.
 
 ## Авторы
 
-[dragonlex](https://github.com/dragonlex) — код приложения и серверной части
+[dragonlex](https://github.com/dragonlex) — Архитектура приложения, первый вариант приложение и серверной части, концепт дизайн [truealex2011](https://github.com/truealex2011) — Доработка кода приложения, Инновации, добавление поддержки llama в серверную часть
+
